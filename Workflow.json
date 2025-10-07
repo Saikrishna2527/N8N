@@ -1,0 +1,293 @@
+{
+  "name": "WhatsApp Google Drive",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-drive-webhook",
+        "responseMode": "onReceived",
+        "respondData": "={{$json["replyPayload"] || "Received"}}"
+      },
+      "name": "Webhook (WhatsApp Inbound)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse incoming WhatsApp message structure (adapt to Twilio/360dialog format)\nconst body = $json;\n// expected body fields: From, Body, NumMedia, MediaUrl0, MediaContentType0\nconst from = body.From || body.from || '';\nconst text = (body.Body || body.body || '').trim();\nconst numMedia = parseInt(body.NumMedia || body.num_media || '0');\nconst media = []\nfor (let i=0;i<numMedia;i++) {\n  const urlKey = `MediaUrl${i}` in body ? `MediaUrl${i}` : `mediaUrl${i}`;\n  const ctKey = `MediaContentType${i}` in body ? `MediaContentType${i}` : `mediaContentType${i}`;\n  if (body[urlKey]) media.push({url: body[urlKey], contentType: body[ctKey] || null});\n}\n\n// command parsing: verbs: LIST, DELETE, MOVE, SUMMARY, RENAME, UPLOAD\nconst parts = text.split(/\s+/);\nconst cmd = parts[0] ? parts[0].toUpperCase() : '';\nlet payload = {from, text, cmd, parts, media};\n\nif (cmd === 'LIST') {\n  // LIST /FolderName\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\//, '') : '';\n}\nelse if (cmd === 'DELETE') {\n  // DELETE /FolderName/file.pdf\n  payload.targetFilePath = parts[1] || '';\n}\nelse if (cmd === 'MOVE') {\n  // MOVE /Folder/file.pdf /Archive\n  payload.targetFilePath = parts[1] || '';\n  payload.destinationFolder = parts[2] ? parts.slice(2).join(' ').replace(/^\//, '') : '';
+}
+else if (cmd === 'SUMMARY') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\//, '') : '';
+}
+else if (cmd === 'RENAME') {\n  // RENAME old.pdf new.pdf\  payload.oldName = parts[1] || '';\n  payload.newName = parts.slice(2).join(' ') || '';
+}
+else if (cmd === 'UPLOAD') {\n  // UPLOAD /FolderName newname.pdf (and file must be attached)
+  payload.targetFolder = parts[1] ? parts[1].replace(/^\//, '') : '';\n  payload.uploadName = parts.slice(2).join(' ') || '';
+}
+\nreturn payload;"
+      },
+      "name": "Function — Parse Command",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "rules": [
+          {
+            "value1": "={{$json[\"cmd\"]}}",
+            "operation": "equal",
+            "value2": "LIST"
+          }
+        ]
+      },
+      "name": "Switch — Command Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [760, 280]
+    },
+    {
+      "parameters": {},
+      "name": "Google Drive — Search Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [1100, 120]
+    },
+    {
+      "parameters": {},
+      "name": "Google Drive — List Files",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [1400, 120]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-reply",
+        "responseMode": "onReceived",
+        "respondData": "={{$json[\"replyPayload\"] || \"OK\"}}"
+      },
+      "name": "Webhook Response (ack)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [1800, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$json[\"media\"] && $json[\"media\"][0] ? $json[\"media\"][0].url : ''}}",
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "name": "HTTP Request — Download Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1100, 420]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "binaryData": true,
+        "binaryProperty": "data",
+        "fileName": "={{$json[\"uploadName\"] || $binary.data.fileName || 'upload.bin'}}",
+        "parentId": "={{$json[\"driveFolderId\"] || ''}}"
+      },
+      "name": "Google Drive — Upload File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [1400, 420]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "delete",
+        "fileId": "={{$json[\"fileId\"]}}"
+      },
+      "name": "Google Drive — Delete File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [1400, 540]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "move",
+        "fileId": "={{$json[\"fileId\"]}}",
+        "parentId": "={{$json[\"destinationFolderId\"]}}"
+      },
+      "name": "Google Drive — Move File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [1400, 660]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "update",
+        "fileId": "={{$json[\"fileId\"]}}",
+        "name": "={{$json[\"newName\"]}}"
+      },
+      "name": "Google Drive — Rename File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 1,
+      "position": [1400, 780]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare a plain-text reply back to the WhatsApp sender\nconst reply = []\nif ($json.cmd === 'LIST') {\n  if ($json.files && $json.files.length) {\n    reply.push('Files in folder:\n');\n    $json.files.forEach(f => reply.push(`${f.name} — ${f.id}`));\n  } else {\n    reply.push('Folder is empty or not found.');\n  }\n}\nelse if ($json.cmd === 'SUMMARY') {\n  reply.push($json.summary || 'No summary available.');\n}\nelse if ($json.cmd === 'DELETE') {\n  reply.push($json.result || 'Deleted (or not found).');\n}\nelse if ($json.cmd === 'UPLOAD') {\n  reply.push($json.uploadResult || 'Upload complete.');\n}\nreturn { replyPayload: reply.join('\n') };"
+      },
+      "name": "Function — Build Reply",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1600, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "temperature": 0.2,
+        "topP": 1,
+        "frequencyPenalty": 0,
+        "presencePenalty": 0,
+        "maxTokens": 800,
+        "additionalFields": {
+          "systemMessage": "You are an assistant that summarizes documents into concise bullet points and a 1-sentence TL;DR."
+        },
+        "prompt": "={{`Summarize the following document contents into bullets and a one-line TL;DR:\n\n${$json.text || ''}`}}"
+      },
+      "name": "OpenAI — Summarize",
+      "type": "n8n-nodes-base.openai",
+      "typeVersion": 1,
+      "position": [1400, 300]
+    }
+  ],
+  "connections": {
+    "Webhook (WhatsApp Inbound)": {
+      "main": [
+        [
+          {
+            "node": "Function — Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function — Parse Command": {
+      "main": [
+        [
+          {
+            "node": "Switch — Command Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch — Command Router": {
+      "main": [
+        [
+          {
+            "node": "Google Drive — Search Folder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Drive — Delete File",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Google Drive — Move File",
+            "type": "main",
+            "index": 2
+          }
+        ],
+        [
+          {
+            "node": "OpenAI — Summarize",
+            "type": "main",
+            "index": 3
+          }
+        ],
+        [
+          {
+            "node": "Google Drive — Rename File",
+            "type": "main",
+            "index": 4
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request — Download Media",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Google Drive — Search Folder": {
+      "main": [
+        [
+          {
+            "node": "Google Drive — List Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request — Download Media": {
+      "main": [
+        [
+          {
+            "node": "Google Drive — Upload File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive — Upload File": {
+      "main": [
+        [
+          {
+            "node": "Function — Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive — List Files": {
+      "main": [
+        [
+          {
+            "node": "Function — Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI — Summarize": {
+      "main": [
+        [
+          {
+            "node": "Function — Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
+
+
