@@ -6,7 +6,7 @@
         "httpMethod": "POST",
         "path": "whatsapp-drive-webhook",
         "responseMode": "onReceived",
-        "respondData": "={{$json["replyPayload"] || "Received"}}"
+        "respondData": "={{$json[\"replyPayload\"] || \"Received\"}}"
       },
       "name": "Webhook (WhatsApp Inbound)",
       "type": "n8n-nodes-base.webhook",
@@ -15,16 +15,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Parse incoming WhatsApp message structure (adapt to Twilio/360dialog format)\nconst body = $json;\n// expected body fields: From, Body, NumMedia, MediaUrl0, MediaContentType0\nconst from = body.From || body.from || '';\nconst text = (body.Body || body.body || '').trim();\nconst numMedia = parseInt(body.NumMedia || body.num_media || '0');\nconst media = []\nfor (let i=0;i<numMedia;i++) {\n  const urlKey = `MediaUrl${i}` in body ? `MediaUrl${i}` : `mediaUrl${i}`;\n  const ctKey = `MediaContentType${i}` in body ? `MediaContentType${i}` : `mediaContentType${i}`;\n  if (body[urlKey]) media.push({url: body[urlKey], contentType: body[ctKey] || null});\n}\n\n// command parsing: verbs: LIST, DELETE, MOVE, SUMMARY, RENAME, UPLOAD\nconst parts = text.split(/\s+/);\nconst cmd = parts[0] ? parts[0].toUpperCase() : '';\nlet payload = {from, text, cmd, parts, media};\n\nif (cmd === 'LIST') {\n  // LIST /FolderName\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\//, '') : '';\n}\nelse if (cmd === 'DELETE') {\n  // DELETE /FolderName/file.pdf\n  payload.targetFilePath = parts[1] || '';\n}\nelse if (cmd === 'MOVE') {\n  // MOVE /Folder/file.pdf /Archive\n  payload.targetFilePath = parts[1] || '';\n  payload.destinationFolder = parts[2] ? parts.slice(2).join(' ').replace(/^\//, '') : '';
-}
-else if (cmd === 'SUMMARY') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\//, '') : '';
-}
-else if (cmd === 'RENAME') {\n  // RENAME old.pdf new.pdf\  payload.oldName = parts[1] || '';\n  payload.newName = parts.slice(2).join(' ') || '';
-}
-else if (cmd === 'UPLOAD') {\n  // UPLOAD /FolderName newname.pdf (and file must be attached)
-  payload.targetFolder = parts[1] ? parts[1].replace(/^\//, '') : '';\n  payload.uploadName = parts.slice(2).join(' ') || '';
-}
-\nreturn payload;"
+        "functionCode": "// Parse incoming WhatsApp message structure (adapt to Twilio/360dialog format)\nconst body = $json;\n// expected body fields: From, Body, NumMedia, MediaUrl0, MediaContentType0\nconst from = body.From || body.from || '';\nconst text = (body.Body || body.body || '').trim();\nconst numMedia = parseInt(body.NumMedia || body.num_media || '0');\nconst media = [];\nfor (let i = 0; i < numMedia; i++) {\n  const urlKey = `MediaUrl${i}` in body ? `MediaUrl${i}` : `mediaUrl${i}`;\n  const ctKey = `MediaContentType${i}` in body ? `MediaContentType${i}` : `mediaContentType${i}`;\n  if (body[urlKey]) media.push({ url: body[urlKey], contentType: body[ctKey] || null });\n}\n\n// command parsing: verbs: LIST, DELETE, MOVE, SUMMARY, RENAME, UPLOAD\nconst parts = text.split(/\\s+/);\nconst cmd = parts[0] ? parts[0].toUpperCase() : '';\nlet payload = { from, text, cmd, parts, media };\n\nif (cmd === 'LIST') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'DELETE') {\n  payload.targetFilePath = parts[1] || '';\n} else if (cmd === 'MOVE') {\n  payload.targetFilePath = parts[1] || '';\n  payload.destinationFolder = parts[2] ? parts.slice(2).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'SUMMARY') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'RENAME') {\n  payload.oldName = parts[1] || '';\n  payload.newName = parts.slice(2).join(' ') || '';\n} else if (cmd === 'UPLOAD') {\n  payload.targetFolder = parts[1] ? parts[1].replace(/^\\//, '') : '';\n  payload.uploadName = parts.slice(2).join(' ') || '';\n}\n\nreturn payload;"
       },
       "name": "Function — Parse Command",
       "type": "n8n-nodes-base.function",
@@ -135,7 +126,7 @@ else if (cmd === 'UPLOAD') {\n  // UPLOAD /FolderName newname.pdf (and file must
     },
     {
       "parameters": {
-        "functionCode": "// Prepare a plain-text reply back to the WhatsApp sender\nconst reply = []\nif ($json.cmd === 'LIST') {\n  if ($json.files && $json.files.length) {\n    reply.push('Files in folder:\n');\n    $json.files.forEach(f => reply.push(`${f.name} — ${f.id}`));\n  } else {\n    reply.push('Folder is empty or not found.');\n  }\n}\nelse if ($json.cmd === 'SUMMARY') {\n  reply.push($json.summary || 'No summary available.');\n}\nelse if ($json.cmd === 'DELETE') {\n  reply.push($json.result || 'Deleted (or not found).');\n}\nelse if ($json.cmd === 'UPLOAD') {\n  reply.push($json.uploadResult || 'Upload complete.');\n}\nreturn { replyPayload: reply.join('\n') };"
+        "functionCode": "// Prepare a plain-text reply back to the WhatsApp sender\nconst reply = [];\nif ($json.cmd === 'LIST') {\n  if ($json.files && $json.files.length) {\n    reply.push('Files in folder:\\n');\n    $json.files.forEach(f => reply.push(`${f.name} — ${f.id}`));\n  } else {\n    reply.push('Folder is empty or not found.');\n  }\n} else if ($json.cmd === 'SUMMARY') {\n  reply.push($json.summary || 'No summary available.');\n} else if ($json.cmd === 'DELETE') {\n  reply.push($json.result || 'Deleted (or not found).');\n} else if ($json.cmd === 'UPLOAD') {\n  reply.push($json.uploadResult || 'Upload complete.');\n}\nreturn { replyPayload: reply.join('\\n') };"
       },
       "name": "Function — Build Reply",
       "type": "n8n-nodes-base.function",
@@ -153,7 +144,7 @@ else if (cmd === 'UPLOAD') {\n  // UPLOAD /FolderName newname.pdf (and file must
         "additionalFields": {
           "systemMessage": "You are an assistant that summarizes documents into concise bullet points and a 1-sentence TL;DR."
         },
-        "prompt": "={{`Summarize the following document contents into bullets and a one-line TL;DR:\n\n${$json.text || ''}`}}"
+        "prompt": "={{`Summarize the following document contents into bullets and a one-line TL;DR:\\n\\n${$json.text || ''}`}}"
       },
       "name": "OpenAI — Summarize",
       "type": "n8n-nodes-base.openai",
@@ -289,5 +280,3 @@ else if (cmd === 'UPLOAD') {\n  // UPLOAD /FolderName newname.pdf (and file must
   "active": false,
   "settings": {}
 }
-
-
