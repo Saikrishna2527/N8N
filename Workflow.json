@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Parse incoming WhatsApp message structure (adapt to Twilio/360dialog format)\nconst body = $json;\n// expected body fields: From, Body, NumMedia, MediaUrl0, MediaContentType0\nconst from = body.From || body.from || '';\nconst text = (body.Body || body.body || '').trim();\nconst numMedia = parseInt(body.NumMedia || body.num_media || '0');\nconst media = [];\nfor (let i = 0; i < numMedia; i++) {\n  const urlKey = `MediaUrl${i}` in body ? `MediaUrl${i}` : `mediaUrl${i}`;\n  const ctKey = `MediaContentType${i}` in body ? `MediaContentType${i}` : `mediaContentType${i}`;\n  if (body[urlKey]) media.push({ url: body[urlKey], contentType: body[ctKey] || null });\n}\n\n// command parsing: verbs: LIST, DELETE, MOVE, SUMMARY, RENAME, UPLOAD\nconst parts = text.split(/\\s+/);\nconst cmd = parts[0] ? parts[0].toUpperCase() : '';\nlet payload = { from, text, cmd, parts, media };\n\nif (cmd === 'LIST') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'DELETE') {\n  payload.targetFilePath = parts[1] || '';\n} else if (cmd === 'MOVE') {\n  payload.targetFilePath = parts[1] || '';\n  payload.destinationFolder = parts[2] ? parts.slice(2).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'SUMMARY') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'RENAME') {\n  payload.oldName = parts[1] || '';\n  payload.newName = parts.slice(2).join(' ') || '';\n} else if (cmd === 'UPLOAD') {\n  payload.targetFolder = parts[1] ? parts[1].replace(/^\\//, '') : '';\n  payload.uploadName = parts.slice(2).join(' ') || '';\n}\n\nreturn payload;"
+        "functionCode": "// Parse incoming WhatsApp message\nconst body = $json;\nconst from = body.From || body.from || '';\nconst text = (body.Body || body.body || '').trim();\nconst numMedia = parseInt(body.NumMedia || body.num_media || '0');\nconst media = [];\nfor (let i = 0; i < numMedia; i++) {\n  const urlKey = `MediaUrl${i}` in body ? `MediaUrl${i}` : `mediaUrl${i}`;\n  const ctKey = `MediaContentType${i}` in body ? `MediaContentType${i}` : `mediaContentType${i}`;\n  if (body[urlKey]) media.push({ url: body[urlKey], contentType: body[ctKey] || null });\n}\nconst parts = text.split(/\\s+/);\nconst cmd = parts[0] ? parts[0].toUpperCase() : '';\nlet payload = { from, text, cmd, parts, media };\nif (cmd === 'LIST') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'DELETE') {\n  payload.targetFilePath = parts[1] || '';\n} else if (cmd === 'MOVE') {\n  payload.targetFilePath = parts[1] || '';\n  payload.destinationFolder = parts[2] ? parts.slice(2).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'SUMMARY') {\n  payload.targetFolder = parts[1] ? parts.slice(1).join(' ').replace(/^\\//, '') : '';\n} else if (cmd === 'RENAME') {\n  payload.oldName = parts[1] || '';\n  payload.newName = parts.slice(2).join(' ') || '';\n} else if (cmd === 'UPLOAD') {\n  payload.targetFolder = parts[1] ? parts[1].replace(/^\\//, '') : '';\n  payload.uploadName = parts.slice(2).join(' ') || '';\n}\nreturn payload;"
       },
       "name": "Function — Parse Command",
       "type": "n8n-nodes-base.function",
@@ -38,14 +38,24 @@
       "position": [760, 280]
     },
     {
-      "parameters": {},
+      "parameters": {
+        "operation": "list",
+        "resource": "folder",
+        "search": "={{$json[\"targetFolder\"] || ''}}"
+      },
       "name": "Google Drive — Search Folder",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 1,
       "position": [1100, 120]
     },
     {
-      "parameters": {},
+      "parameters": {
+        "operation": "list",
+        "resource": "file",
+        "filters": {
+          "parents": "={{$json[\"id\"] || ''}}"
+        }
+      },
       "name": "Google Drive — List Files",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 1,
@@ -81,8 +91,8 @@
         "operation": "upload",
         "binaryData": true,
         "binaryProperty": "data",
-        "fileName": "={{$json[\"uploadName\"] || $binary.data.fileName || 'upload.bin'}}",
-        "parentId": "={{$json[\"driveFolderId\"] || ''}}"
+        "fileName": "={{$json[\"uploadName\"] || ($json[\"media\"] && $json[\"media\"][0] ? $json[\"media\"][0].url.split('/').pop() : 'upload.bin')}}",
+        "parentId": "={{$json[\"id\"] || $json[\"driveFolderId\"] || ''}}"
       },
       "name": "Google Drive — Upload File",
       "type": "n8n-nodes-base.googleDrive",
@@ -91,65 +101,12 @@
     },
     {
       "parameters": {
-        "resource": "file",
-        "operation": "delete",
-        "fileId": "={{$json[\"fileId\"]}}"
-      },
-      "name": "Google Drive — Delete File",
-      "type": "n8n-nodes-base.googleDrive",
-      "typeVersion": 1,
-      "position": [1400, 540]
-    },
-    {
-      "parameters": {
-        "resource": "file",
-        "operation": "move",
-        "fileId": "={{$json[\"fileId\"]}}",
-        "parentId": "={{$json[\"destinationFolderId\"]}}"
-      },
-      "name": "Google Drive — Move File",
-      "type": "n8n-nodes-base.googleDrive",
-      "typeVersion": 1,
-      "position": [1400, 660]
-    },
-    {
-      "parameters": {
-        "resource": "file",
-        "operation": "update",
-        "fileId": "={{$json[\"fileId\"]}}",
-        "name": "={{$json[\"newName\"]}}"
-      },
-      "name": "Google Drive — Rename File",
-      "type": "n8n-nodes-base.googleDrive",
-      "typeVersion": 1,
-      "position": [1400, 780]
-    },
-    {
-      "parameters": {
-        "functionCode": "// Prepare a plain-text reply back to the WhatsApp sender\nconst reply = [];\nif ($json.cmd === 'LIST') {\n  if ($json.files && $json.files.length) {\n    reply.push('Files in folder:\\n');\n    $json.files.forEach(f => reply.push(`${f.name} — ${f.id}`));\n  } else {\n    reply.push('Folder is empty or not found.');\n  }\n} else if ($json.cmd === 'SUMMARY') {\n  reply.push($json.summary || 'No summary available.');\n} else if ($json.cmd === 'DELETE') {\n  reply.push($json.result || 'Deleted (or not found).');\n} else if ($json.cmd === 'UPLOAD') {\n  reply.push($json.uploadResult || 'Upload complete.');\n}\nreturn { replyPayload: reply.join('\\n') };"
+        "functionCode": "// Prepare WhatsApp reply\nconst reply = [];\nif ($json.cmd === 'LIST') {\n  if ($json.files && $json.files.length) {\n    reply.push('Files in folder:\\n');\n    $json.files.forEach(f => reply.push(`${f.name} — ${f.id}`));\n  } else {\n    reply.push('Folder is empty or not found.');\n  }\n} else if ($json.cmd === 'UPLOAD') {\n  reply.push($json.uploadResult || 'Upload complete.');\n}\nreturn { replyPayload: reply.join('\\n') };"
       },
       "name": "Function — Build Reply",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [1600, 300]
-    },
-    {
-      "parameters": {
-        "model": "gpt-4o-mini",
-        "temperature": 0.2,
-        "topP": 1,
-        "frequencyPenalty": 0,
-        "presencePenalty": 0,
-        "maxTokens": 800,
-        "additionalFields": {
-          "systemMessage": "You are an assistant that summarizes documents into concise bullet points and a 1-sentence TL;DR."
-        },
-        "prompt": "={{`Summarize the following document contents into bullets and a one-line TL;DR:\\n\\n${$json.text || ''}`}}"
-      },
-      "name": "OpenAI — Summarize",
-      "type": "n8n-nodes-base.openai",
-      "typeVersion": 1,
-      "position": [1400, 300]
     }
   ],
   "connections": {
@@ -186,37 +143,9 @@
         ],
         [
           {
-            "node": "Google Drive — Delete File",
-            "type": "main",
-            "index": 1
-          }
-        ],
-        [
-          {
-            "node": "Google Drive — Move File",
-            "type": "main",
-            "index": 2
-          }
-        ],
-        [
-          {
-            "node": "OpenAI — Summarize",
-            "type": "main",
-            "index": 3
-          }
-        ],
-        [
-          {
-            "node": "Google Drive — Rename File",
-            "type": "main",
-            "index": 4
-          }
-        ],
-        [
-          {
             "node": "HTTP Request — Download Media",
             "type": "main",
-            "index": 5
+            "index": 1
           }
         ]
       ]
@@ -226,6 +155,17 @@
         [
           {
             "node": "Google Drive — List Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive — List Files": {
+      "main": [
+        [
+          {
+            "node": "Function — Build Reply",
             "type": "main",
             "index": 0
           }
@@ -244,28 +184,6 @@
       ]
     },
     "Google Drive — Upload File": {
-      "main": [
-        [
-          {
-            "node": "Function — Build Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Google Drive — List Files": {
-      "main": [
-        [
-          {
-            "node": "Function — Build Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "OpenAI — Summarize": {
       "main": [
         [
           {
